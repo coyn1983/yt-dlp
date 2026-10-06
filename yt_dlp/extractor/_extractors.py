@@ -829,6 +829,7 @@ from .iwara import (
     IwaraUserIE,
 )
 from .ixigua import IxiguaIE
+from .jable import JableIE
 from .jamendo import (
     JamendoAlbumIE,
     JamendoIE,
