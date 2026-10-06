@@ -2,7 +2,8 @@ import re
 from datetime import datetime, timezone
 
 from .common import InfoExtractor
-from ..utils import clean_html, unified_strdate
+from ..networking.impersonate import ImpersonateTarget
+from ..utils import ExtractorError, clean_html, unified_strdate
 
 
 class JableIE(InfoExtractor):
@@ -43,11 +44,32 @@ class JableIE(InfoExtractor):
         except Exception:
             return None
 
+    # rotate TLS fingerprints on Cloudflare 403/429 challenges
+    _IMPERSONATE_FALLBACKS = (
+        None,  # default target
+        ImpersonateTarget('edge', '101'),
+        ImpersonateTarget('safari', '18', 'macos', '14'),
+        ImpersonateTarget('firefox', '147'),
+    )
+
+    def _download_page(self, url, video_id):
+        last_err = None
+        for target in self._IMPERSONATE_FALLBACKS:
+            try:
+                return self._download_webpage(
+                    url, video_id, impersonate=target or True,
+                    headers={'Referer': 'https://jable.tv/'})
+            except ExtractorError as e:
+                cause = str(getattr(e, 'cause', None) or e.orig_msg or e)
+                if not re.search(r'\b(40[3]|429|50[3])\b', cause):
+                    raise
+                last_err = e
+                self.to_screen(f'Got {cause.splitlines()[0][:60]}; retrying with a different browser fingerprint')
+        raise last_err
+
     def _real_extract(self, url):
         video_id = self._match_id(url)
-        webpage = self._download_webpage(
-            url, video_id, impersonate=True,
-            headers={'Referer': 'https://jable.tv/'})
+        webpage = self._download_page(url, video_id)
 
         hls_url = self._search_regex(
             r'hlsUrl\s*=\s*(["\'])(?P<url>https?://.+?\.m3u8[^\1]*?)\1',
